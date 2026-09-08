@@ -1,0 +1,5 @@
+wwwroot\images\blanc_20260210_192937.jpeg
+wwwroot\images\nampr.jpeg
+wwwroot\images\noir_20260210_192937.jpeg
+wwwroot\images\product-2.png
+wwwroot\images\product-4.png

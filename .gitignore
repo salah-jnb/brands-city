@@ -1,0 +1,42 @@
+# Global
+.DS_Store
+Thumbs.db
+npm-debug.log*
+.env
+.env.*.local
+.vscode/
+.idea/
+*.log
+
+# Node / frontendSHOP
+/frontendSHOP/node_modules/
+/frontendSHOP/dist/
+/frontendSHOP/build/
+/frontendSHOP/.turbo/
+/frontendSHOP/.vite/
+/frontendSHOP/.parcel-cache/
+
+# .NET / backendSHOP
+/backendSHOP/bin/
+/backendSHOP/obj/
+/backendSHOP/*.user
+/backendSHOP/*.userosscache
+/backendSHOP/*.suo
+/backendSHOP/*.pdb
+/backendSHOP/*.dll
+/backendSHOP/*.exe
+/backendSHOP/.vs/
+
+# NuGet
+*.nupkg
+/packages/
+
+# Logs
+*.log
+
+# OS files
+ehthumbs.db
+Icon?
+
+# Optional JetBrains Rider
+.idea/
