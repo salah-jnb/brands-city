@@ -13,6 +13,19 @@ import {
 import { Shoe, ShoeSize, ShoeColor } from '@/types';
 import { shoesApi, getImageUrl } from '@/services/api';
 import { toast } from 'sonner';
+import Loader from '@/components/Loader';
+import { responsiveDialog, dialogHeaderClass, dialogBodyClass, dialogFooterClass } from '@/components/admin/dialogClasses';
+
+// Aperçu d'un fichier choisi (libère l'URL temporaire au démontage)
+const FilePreview: React.FC<{ file: File; className?: string }> = ({ file, className }) => {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  return url ? <img src={url} alt="" className={className} /> : null;
+};
 
 const AdminProducts: React.FC = () => {
   const [shoes, setShoes] = useState<Shoe[]>([]);
@@ -142,7 +155,8 @@ const AdminProducts: React.FC = () => {
 
     const finalBrand = isCustomBrand ? customBrand : formData.brand;
     
-    if (!formData.name || !finalBrand || !formData.price) {
+    const priceValue = parseFloat(formData.price);
+    if (!formData.name || !finalBrand || !formData.price || Number.isNaN(priceValue) || priceValue < 0) {
       toast.error('Veuillez remplir tous les champs obligatoires');
       return;
     }
@@ -154,20 +168,20 @@ const AdminProducts: React.FC = () => {
 
     if (editingShoe) {
       // Update existing shoe via API
+      setIsUploading(true);
       const response = await shoesApi.update(editingShoe.id.toString(), {
         name: formData.name,
         brand: finalBrand,
         price: parseFloat(formData.price),
+        sizes: formData.sizes,
       });
-      
+      setIsUploading(false);
+
       if (response.data) {
-        setShoes((prev) =>
-          prev.map((s) =>
-            s.id === editingShoe.id
-              ? { ...response.data!, sizes: formData.sizes }
-              : s
-          )
-        );
+        setShoes((prev) => prev.map((s) => (s.id === editingShoe.id ? response.data! : s)));
+        if (isCustomBrand && customBrand && !brands.includes(customBrand)) {
+          setBrands((prev) => [...prev, customBrand].sort());
+        }
         toast.success('Produit mis à jour !');
       } else {
         toast.error(response.error || 'Erreur lors de la mise à jour');
@@ -341,8 +355,29 @@ const AdminProducts: React.FC = () => {
     }
   };
 
+  const thumbOf = (shoe: Shoe) => getImageUrl(shoe.colors?.[0]?.imageUrl || shoe.imageUrl);
+
+  const stockBadge = (totalStock: number) =>
+    `badge-stock ${totalStock === 0 ? 'badge-stock-out' : totalStock <= 10 ? 'badge-stock-low' : 'badge-stock-in'}`;
+
+  const colorDots = (shoe: Shoe) =>
+    shoe.colors && shoe.colors.length > 0 ? (
+      <div className="flex gap-1 flex-wrap">
+        {shoe.colors.map((color) => (
+          <div
+            key={color.id}
+            className="w-6 h-6 rounded-full border-2 border-border"
+            style={{ backgroundColor: color.colorCode }}
+            title={color.colorName}
+          />
+        ))}
+      </div>
+    ) : (
+      <span className="text-muted-foreground text-sm">Aucune couleur</span>
+    );
+
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-5 lg:space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl md:text-4xl text-foreground">Produits</h1>
@@ -350,170 +385,180 @@ const AdminProducts: React.FC = () => {
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="btn-glow gap-2" onClick={handleOpenCreate}>
-              <Plus className="h-4 w-4" />
+            <Button className="btn-glow gap-2 h-12 sm:h-10 w-full sm:w-auto text-base sm:text-sm" onClick={handleOpenCreate}>
+              <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
               Ajouter un produit
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
+          <DialogContent className={`${responsiveDialog} sm:max-w-2xl`}>
+            <DialogHeader className={dialogHeaderClass}>
               <DialogTitle className="font-display text-2xl">
                 {editingShoe ? 'Modifier le produit' : 'Nouveau produit'}
               </DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-6 pt-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Nom *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="Air Max 90"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="brand">Marque *</Label>
-                  <div className="flex gap-2">
-                    {isCustomBrand ? (
-                      <Input
-                        id="brand"
-                        value={customBrand}
-                        onChange={(e) => setCustomBrand(e.target.value)}
-                        placeholder="Nouvelle marque"
-                        className="flex-1"
-                      />
-                    ) : (
-                      <select
-                        id="brand"
-                        value={formData.brand}
-                        onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                        className="flex-1 h-10 px-3 rounded-md border border-input bg-background text-foreground"
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className={`${dialogBodyClass} space-y-6`}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Nom *</Label>
+                    <Input
+                      id="name"
+                      className="h-12 md:h-10"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="Air Max 90"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="brand">Marque *</Label>
+                    <div className="flex gap-2">
+                      {isCustomBrand ? (
+                        <Input
+                          id="brand"
+                          value={customBrand}
+                          onChange={(e) => setCustomBrand(e.target.value)}
+                          placeholder="Nouvelle marque"
+                          className="flex-1 h-12 md:h-10"
+                          autoComplete="off"
+                        />
+                      ) : (
+                        <select
+                          id="brand"
+                          value={formData.brand}
+                          onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
+                          className="flex-1 min-w-0 h-12 md:h-10 px-3 rounded-md border border-input bg-background text-foreground text-base md:text-sm"
+                        >
+                          <option value="">Sélectionner</option>
+                          {brands.map((b) => (
+                            <option key={b} value={b}>
+                              {b}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-12 w-12 md:h-10 md:w-10 flex-shrink-0"
+                        onClick={() => {
+                          setIsCustomBrand(!isCustomBrand);
+                          if (isCustomBrand) {
+                            setCustomBrand('');
+                          } else {
+                            setFormData({ ...formData, brand: '' });
+                          }
+                        }}
+                        title={isCustomBrand ? 'Choisir dans la liste' : 'Ajouter nouvelle marque'}
+                        aria-label={isCustomBrand ? 'Choisir dans la liste' : 'Ajouter nouvelle marque'}
                       >
-                        <option value="">Sélectionner</option>
-                        {brands.map((b) => (
-                          <option key={b} value={b}>
-                            {b}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => {
-                        setIsCustomBrand(!isCustomBrand);
-                        if (isCustomBrand) {
-                          setCustomBrand('');
-                        } else {
-                          setFormData({ ...formData, brand: '' });
-                        }
-                      }}
-                      title={isCustomBrand ? 'Choisir dans la liste' : 'Ajouter nouvelle marque'}
-                    >
-                      {isCustomBrand ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                    </Button>
+                        {isCustomBrand ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="price">Prix (DT) *</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  step="0.01"
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  placeholder="159.99"
-                />
-              </div>
-
-              <div className="space-y-3">
-                <Label>Stock par taille</Label>
-                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-                  {formData.sizes.map((sizeData) => (
-                    <div key={sizeData.size} className="text-center">
-                      <p className="text-sm text-muted-foreground mb-1">{sizeData.size}</p>
-                      <Input
-                        type="number"
-                        min="0"
-                        value={sizeData.quantity}
-                        onChange={(e) => updateSizeStock(sizeData.size, parseInt(e.target.value) || 0)}
-                        className="text-center"
-                      />
-                    </div>
-                  ))}
+                <div className="space-y-2">
+                  <Label htmlFor="price">Prix (DT) *</Label>
+                  <Input
+                    id="price"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0"
+                    className="h-12 md:h-10"
+                    value={formData.price}
+                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                    placeholder="159.99"
+                  />
                 </div>
-              </div>
 
-              {/* Colors section - only show when creating new product */}
-              {!editingShoe && (
-                <div className="space-y-3 border-t border-border pt-4">
-                  <Label className="flex items-center gap-2">
-                    <Palette className="h-4 w-4" />
-                    Couleurs * (au moins une)
-                  </Label>
-                  
-                  {/* Added colors */}
-                  {formColors.length > 0 && (
-                    <div className="space-y-2">
-                      {formColors.map((color, index) => (
-                        <div key={index} className="flex items-center gap-3 p-2 bg-secondary/30 rounded-lg">
-                          <div
-                            className="w-8 h-8 rounded-full border-2 border-border flex-shrink-0"
-                            style={{ backgroundColor: color.colorCode }}
-                          />
-                          <span className="flex-1 text-sm">{color.colorName}</span>
-                          {color.file && (
-                            <span className="text-xs text-muted-foreground truncate max-w-[100px]">
-                              {color.file.name}
-                            </span>
-                          )}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive h-8 w-8"
-                            onClick={() => removeFormColor(index)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Add new color */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Nom</Label>
-                      <Input
-                        value={newFormColor.colorName}
-                        onChange={(e) => setNewFormColor({ ...newFormColor, colorName: e.target.value })}
-                        placeholder="Noir, Rouge..."
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Couleur</Label>
-                      <div className="flex gap-1">
-                        <input
-                          type="color"
-                          value={newFormColor.colorCode}
-                          onChange={(e) => setNewFormColor({ ...newFormColor, colorCode: e.target.value })}
-                          className="w-10 h-10 rounded border border-border cursor-pointer"
-                        />
+                <div className="space-y-3">
+                  <Label>Stock par taille</Label>
+                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                    {formData.sizes.map((sizeData) => (
+                      <div key={sizeData.size} className="text-center">
+                        <p className="text-sm font-medium text-muted-foreground mb-1">{sizeData.size}</p>
                         <Input
-                          value={newFormColor.colorCode}
-                          onChange={(e) => setNewFormColor({ ...newFormColor, colorCode: e.target.value })}
-                          className="flex-1"
+                          type="number"
+                          inputMode="numeric"
+                          min="0"
+                          aria-label={`Stock taille ${sizeData.size}`}
+                          value={sizeData.quantity}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => updateSizeStock(sizeData.size, parseInt(e.target.value) || 0)}
+                          className="text-center px-1 h-12 md:h-10"
                         />
                       </div>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Image</Label>
-                      <div className="relative">
+                    ))}
+                  </div>
+                </div>
+
+                {/* Couleurs : uniquement à la création (ensuite via le bouton palette) */}
+                {!editingShoe && (
+                  <div className="space-y-3 border-t border-border pt-4">
+                    <Label className="flex items-center gap-2">
+                      <Palette className="h-4 w-4" />
+                      Couleurs * (au moins une)
+                    </Label>
+
+                    {formColors.length > 0 && (
+                      <div className="space-y-2">
+                        {formColors.map((color, index) => (
+                          <div key={index} className="flex items-center gap-3 p-2 bg-secondary/30 rounded-lg">
+                            {color.file && <FilePreview file={color.file} className="w-12 h-12 rounded-md object-cover flex-shrink-0" />}
+                            <div
+                              className="w-6 h-6 rounded-full border-2 border-border flex-shrink-0"
+                              style={{ backgroundColor: color.colorCode }}
+                            />
+                            <span className="flex-1 min-w-0 text-sm truncate">{color.colorName}</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive h-11 w-11 flex-shrink-0"
+                              onClick={() => removeFormColor(index)}
+                              aria-label={`Retirer ${color.colorName}`}
+                            >
+                              <X className="h-5 w-5" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="rounded-lg border border-dashed border-border p-3 space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Nom de la couleur</Label>
+                          <Input
+                            className="h-12 md:h-10"
+                            value={newFormColor.colorName}
+                            onChange={(e) => setNewFormColor({ ...newFormColor, colorName: e.target.value })}
+                            placeholder="Noir, Rouge..."
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Teinte</Label>
+                          <div className="flex gap-2">
+                            <input
+                              type="color"
+                              value={newFormColor.colorCode}
+                              onChange={(e) => setNewFormColor({ ...newFormColor, colorCode: e.target.value })}
+                              className="w-12 h-12 md:h-10 md:w-10 rounded border border-border cursor-pointer bg-background flex-shrink-0"
+                            />
+                            <Input
+                              value={newFormColor.colorCode}
+                              onChange={(e) => setNewFormColor({ ...newFormColor, colorCode: e.target.value })}
+                              className="flex-1 min-w-0 h-12 md:h-10"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">Photo</Label>
                         <Input
                           type="file"
                           accept="image/*"
@@ -523,27 +568,34 @@ const AdminProducts: React.FC = () => {
                         />
                         <label
                           htmlFor="color-image-input"
-                          className="flex items-center gap-2 h-10 px-3 rounded-md border border-input bg-background text-foreground cursor-pointer hover:bg-secondary/50 transition-colors"
+                          className="flex items-center gap-3 min-h-12 px-3 py-2 rounded-md border border-input bg-background text-foreground cursor-pointer active:bg-secondary/50 hover:bg-secondary/50 transition-colors"
                         >
-                          <Upload className="h-4 w-4" />
+                          {newFormColorFile ? (
+                            <FilePreview file={newFormColorFile} className="w-10 h-10 rounded object-cover flex-shrink-0" />
+                          ) : (
+                            <Upload className="h-5 w-5 flex-shrink-0" />
+                          )}
                           <span className="text-sm truncate">
-                            {newFormColorFile ? newFormColorFile.name : 'Choisir...'}
+                            {newFormColorFile ? newFormColorFile.name : 'Prendre ou choisir une photo'}
                           </span>
                         </label>
                       </div>
-                    </div>
-                    <Button type="button" onClick={addFormColor} className="h-10">
-                      <Plus className="h-4 w-4 mr-1" />
-                      Ajouter
-                    </Button>
-                  </div>
-                </div>
-              )}
 
-              <div className="flex justify-end gap-3 pt-4">
+                      <Button type="button" variant="secondary" onClick={addFormColor} className="w-full h-12 md:h-10">
+                        <Plus className="h-4 w-4 mr-1" />
+                        Ajouter cette couleur
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Pied collant : les boutons restent visibles pendant le scroll */}
+              <div className={`${dialogFooterClass} flex gap-3`}>
                 <Button
                   type="button"
                   variant="outline"
+                  className="flex-1 sm:flex-none h-12 sm:h-10"
                   onClick={() => {
                     setIsDialogOpen(false);
                     resetForm();
@@ -552,8 +604,8 @@ const AdminProducts: React.FC = () => {
                 >
                   Annuler
                 </Button>
-                <Button type="submit" className="btn-glow" disabled={isUploading}>
-                  {isUploading ? 'Envoi en cours...' : editingShoe ? 'Mettre à jour' : 'Créer'}
+                <Button type="submit" className="btn-glow flex-1 sm:flex-none h-12 sm:h-10" disabled={isUploading}>
+                  {isUploading ? 'Envoi en cours...' : editingShoe ? 'Mettre à jour' : 'Créer le produit'}
                 </Button>
               </div>
             </form>
@@ -561,161 +613,160 @@ const AdminProducts: React.FC = () => {
         </Dialog>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-md">
+      {/* Recherche */}
+      <div className="relative sm:max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          type="text"
+          type="search"
           placeholder="Rechercher un produit..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-10"
+          className="pl-10 h-12 md:h-10"
         />
       </div>
 
-      {/* Products Table */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border bg-secondary/30">
-                <th className="text-left p-4 text-muted-foreground font-medium text-sm">
-                  Produit
-                </th>
-                <th className="text-left p-4 text-muted-foreground font-medium text-sm">
-                  Marque
-                </th>
-                <th className="text-left p-4 text-muted-foreground font-medium text-sm">
-                  Prix
-                </th>
-                <th className="text-left p-4 text-muted-foreground font-medium text-sm">
-                  Couleurs
-                </th>
-                <th className="text-left p-4 text-muted-foreground font-medium text-sm">
-                  Stock total
-                </th>
-                <th className="text-right p-4 text-muted-foreground font-medium text-sm">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredShoes.map((shoe) => {
-                const totalStock = shoe.sizes.reduce((sum, s) => sum + s.quantity, 0);
-                return (
-                  <tr key={shoe.id} className="border-b border-border last:border-0">
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-lg overflow-hidden">
-                          <img
-                            src={getImageUrl(shoe.imageUrl)}
-                            alt={shoe.name}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <span className="font-medium text-foreground">{shoe.name}</span>
-                      </div>
-                    </td>
-                    <td className="p-4 text-muted-foreground">{shoe.brand}</td>
-                    <td className="p-4 text-foreground">{shoe.price.toFixed(2)} DT</td>
-                    <td className="p-4">
-                      <div className="flex gap-1 flex-wrap">
-                        {shoe.colors && shoe.colors.length > 0 ? (
-                          shoe.colors.map((color) => (
-                            <div
-                              key={color.id}
-                              className="w-6 h-6 rounded-full border-2 border-border"
-                              style={{ backgroundColor: color.colorCode }}
-                              title={color.colorName}
-                            />
-                          ))
-                        ) : (
-                          <span className="text-muted-foreground text-sm">Aucune</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <span
-                        className={`badge-stock ${
-                          totalStock === 0
-                            ? 'badge-stock-out'
-                            : totalStock <= 10
-                            ? 'badge-stock-low'
-                            : 'badge-stock-in'
-                        }`}
-                      >
-                        {totalStock}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenColorDialog(shoe)}
-                          title="Gérer les couleurs"
-                        >
-                          <Palette className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenEdit(shoe)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(shoe.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {isLoading ? (
+        <div className="flex justify-center py-16">
+          <Loader />
         </div>
-      </div>
+      ) : filteredShoes.length === 0 ? (
+        <div className="bg-card border border-border rounded-xl p-10 text-center text-muted-foreground">
+          {shoes.length === 0 ? 'Aucun produit pour le moment.' : 'Aucun produit ne correspond à la recherche.'}
+        </div>
+      ) : (
+        <>
+          {/* Mobile : cartes */}
+          <ul className="md:hidden space-y-3">
+            {filteredShoes.map((shoe) => {
+              const totalStock = shoe.sizes.reduce((sum, s) => sum + s.quantity, 0);
+              return (
+                <li key={shoe.id} className="bg-card border border-border rounded-xl p-3">
+                  <div className="flex gap-3">
+                    <img src={thumbOf(shoe)} alt={shoe.name} className="w-20 h-20 rounded-lg object-cover flex-shrink-0 bg-secondary/30" />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <p className="font-semibold text-foreground leading-tight">{shoe.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {shoe.brand} · <span className="text-foreground font-medium">{shoe.price.toFixed(2)} DT</span>
+                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        {colorDots(shoe)}
+                        <span className={stockBadge(totalStock)}>
+                          {totalStock === 0 ? 'Rupture' : `${totalStock} en stock`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-border">
+                    <Button variant="outline" className="h-11 gap-1.5 px-2" onClick={() => handleOpenColorDialog(shoe)}>
+                      <Palette className="h-4 w-4" />
+                      Couleurs
+                    </Button>
+                    <Button variant="outline" className="h-11 gap-1.5 px-2" onClick={() => handleOpenEdit(shoe)}>
+                      <Pencil className="h-4 w-4" />
+                      Modifier
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-11 gap-1.5 px-2 text-destructive hover:text-destructive"
+                      onClick={() => handleDelete(shoe.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Suppr.
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
 
-      {/* Color Management Dialog */}
+          {/* Écran large : tableau */}
+          <div className="hidden md:block bg-card border border-border rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/30">
+                    {['Produit', 'Marque', 'Prix', 'Couleurs', 'Stock total'].map((h) => (
+                      <th key={h} className="text-left p-4 text-muted-foreground font-medium text-sm">
+                        {h}
+                      </th>
+                    ))}
+                    <th className="text-right p-4 text-muted-foreground font-medium text-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredShoes.map((shoe) => {
+                    const totalStock = shoe.sizes.reduce((sum, s) => sum + s.quantity, 0);
+                    return (
+                      <tr key={shoe.id} className="border-b border-border last:border-0">
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <img src={thumbOf(shoe)} alt={shoe.name} className="w-12 h-12 rounded-lg object-cover" />
+                            <span className="font-medium text-foreground">{shoe.name}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 text-muted-foreground">{shoe.brand}</td>
+                        <td className="p-4 text-foreground">{shoe.price.toFixed(2)} DT</td>
+                        <td className="p-4">{colorDots(shoe)}</td>
+                        <td className="p-4">
+                          <span className={stockBadge(totalStock)}>{totalStock}</span>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="icon" onClick={() => handleOpenColorDialog(shoe)} title="Gérer les couleurs">
+                              <Palette className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(shoe)} title="Modifier">
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => handleDelete(shoe.id)}
+                              title="Supprimer"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Gestion des couleurs d'un produit existant */}
       <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              Gérer les couleurs - {colorShoe?.name}
-            </DialogTitle>
+        <DialogContent className={`${responsiveDialog} sm:max-w-lg`}>
+          <DialogHeader className={dialogHeaderClass}>
+            <DialogTitle>Couleurs · {colorShoe?.name}</DialogTitle>
           </DialogHeader>
-          
-          <div className="space-y-4">
-            {/* Existing colors */}
+
+          <div className={`${dialogBodyClass} space-y-5`}>
             {colorShoe?.colors && colorShoe.colors.length > 0 && (
               <div className="space-y-2">
                 <Label>Couleurs existantes</Label>
                 <div className="space-y-2">
                   {colorShoe.colors.map((color) => (
                     <div key={color.id} className="flex items-center gap-3 p-2 bg-secondary/30 rounded-lg">
+                      <img src={getImageUrl(color.imageUrl)} alt={color.colorName} className="w-12 h-12 object-cover rounded flex-shrink-0" />
                       <div
-                        className="w-8 h-8 rounded-full border-2 border-border"
+                        className="w-6 h-6 rounded-full border-2 border-border flex-shrink-0"
                         style={{ backgroundColor: color.colorCode }}
                       />
-                      <span className="flex-1">{color.colorName}</span>
-                      <img 
-                        src={getImageUrl(color.imageUrl)} 
-                        alt={color.colorName}
-                        className="w-10 h-10 object-cover rounded"
-                      />
+                      <span className="flex-1 min-w-0 truncate">{color.colorName}</span>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="text-destructive hover:text-destructive"
+                        className="text-destructive hover:text-destructive h-11 w-11 flex-shrink-0"
                         onClick={() => handleDeleteColor(color.id)}
+                        aria-label={`Supprimer ${color.colorName}`}
                       >
-                        <X className="h-4 w-4" />
+                        <Trash2 className="h-5 w-5" />
                       </Button>
                     </div>
                   ))}
@@ -723,71 +774,75 @@ const AdminProducts: React.FC = () => {
               </div>
             )}
 
-            {/* Add new color */}
             <div className="space-y-3 pt-4 border-t border-border">
               <Label>Ajouter une couleur</Label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label htmlFor="colorName">Nom</Label>
+                  <Label htmlFor="colorName" className="text-xs">Nom</Label>
                   <Input
                     id="colorName"
+                    className="h-12 md:h-10"
                     value={newColor.colorName}
                     onChange={(e) => setNewColor({ ...newColor, colorName: e.target.value })}
                     placeholder="Rouge, Bleu..."
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="colorCode">Couleur</Label>
+                  <Label htmlFor="colorCode" className="text-xs">Teinte</Label>
                   <div className="flex gap-2">
                     <input
                       type="color"
                       id="colorCode"
                       value={newColor.colorCode}
                       onChange={(e) => setNewColor({ ...newColor, colorCode: e.target.value })}
-                      className="w-12 h-10 rounded border border-border cursor-pointer"
+                      className="w-12 h-12 md:h-10 md:w-10 rounded border border-border cursor-pointer bg-background flex-shrink-0"
                     />
                     <Input
                       value={newColor.colorCode}
                       onChange={(e) => setNewColor({ ...newColor, colorCode: e.target.value })}
                       placeholder="#FF0000"
-                      className="flex-1"
+                      className="flex-1 min-w-0 h-12 md:h-10"
                     />
                   </div>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Image *</Label>
-                <div className="relative">
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setNewColorFile(e.target.files?.[0] || null)}
-                    className="hidden"
-                    id="dialog-color-image-input"
-                  />
-                  <label
-                    htmlFor="dialog-color-image-input"
-                    className="flex items-center gap-2 h-10 px-3 rounded-md border border-input bg-background text-foreground cursor-pointer hover:bg-secondary/50 transition-colors"
-                  >
-                    <Upload className="h-4 w-4" />
-                    <span className="text-sm truncate">
-                      {newColorFile ? newColorFile.name : 'Choisir une image...'}
-                    </span>
-                  </label>
-                </div>
+                <Label className="text-xs">Photo *</Label>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setNewColorFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                  id="dialog-color-image-input"
+                />
+                <label
+                  htmlFor="dialog-color-image-input"
+                  className="flex items-center gap-3 min-h-12 px-3 py-2 rounded-md border border-input bg-background text-foreground cursor-pointer active:bg-secondary/50 hover:bg-secondary/50 transition-colors"
+                >
+                  {newColorFile ? (
+                    <FilePreview file={newColorFile} className="w-10 h-10 rounded object-cover flex-shrink-0" />
+                  ) : (
+                    <Upload className="h-5 w-5 flex-shrink-0" />
+                  )}
+                  <span className="text-sm truncate">
+                    {newColorFile ? newColorFile.name : 'Prendre ou choisir une photo'}
+                  </span>
+                </label>
               </div>
-              <Button onClick={handleAddColor} disabled={isUploading} className="w-full">
-                {isUploading ? (
-                  <>Envoi en cours...</>
-                ) : (
-                  <>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Ajouter la couleur
-                  </>
-                )}
-                Ajouter la couleur
-              </Button>
             </div>
+          </div>
+
+          <div className={dialogFooterClass}>
+            <Button onClick={handleAddColor} disabled={isUploading} className="w-full h-12 sm:h-10">
+              {isUploading ? (
+                'Envoi en cours...'
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Ajouter la couleur
+                </>
+              )}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

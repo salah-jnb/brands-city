@@ -1,5 +1,6 @@
 import { Shoe, ShoeColor, Order, AuthResponse, ApiResponse, User, OrderStatus, BackendCart } from '@/types';
 import { supabase, SUPABASE_URL, STORAGE_BUCKET } from '@/lib/supabase';
+import { compressImage } from '@/lib/image';
 
 const STORAGE_PUBLIC_PREFIX = `${SUPABASE_URL}/storage/v1/object/public/${STORAGE_BUCKET}/`;
 
@@ -214,7 +215,8 @@ export const shoesApi = {
     return { data: [...new Set((data ?? []).map((r) => r.brand))].sort() };
   },
 
-  uploadImage: async (file: File, colorName?: string): Promise<ApiResponse<{ imageUrl: string }>> => {
+  uploadImage: async (original: File, colorName?: string): Promise<ApiResponse<{ imageUrl: string }>> => {
+    const file = await compressImage(original);
     const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
     const slug = (colorName || 'image').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'image';
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
@@ -271,6 +273,17 @@ export const shoesApi = {
     const { data, error } = await supabase.from('shoes').update(patch).eq('id', id).select('id').maybeSingle();
     if (error) return fail(error.message);
     if (!data) return fail('Modification refusée ou produit introuvable');
+
+    // Stock par taille : mise à jour des tailles existantes
+    if (shoe.sizes && shoe.sizes.length > 0) {
+      const { error: sizesError } = await supabase
+        .from('shoe_sizes')
+        .upsert(
+          shoe.sizes.map((s) => ({ shoe_id: Number(id), size: s.size, quantity: Math.max(0, s.quantity) })),
+          { onConflict: 'shoe_id,size' }
+        );
+      if (sizesError) return fail(sizesError.message);
+    }
     return shoesApi.getById(id);
   },
 
@@ -372,5 +385,36 @@ export const ordersApi = {
     if (error) return fail(error.message);
     if (!data) return fail('Modification refusée');
     return ordersApi.getById(id);
+  },
+};
+
+// ---------------------------------------------------------------------
+// Push API (appareils admin abonnés aux notifications de commandes)
+// ---------------------------------------------------------------------
+export const pushApi = {
+  save: async (subscription: PushSubscription): Promise<ApiResponse<void>> => {
+    const userId = await getUserId();
+    if (!userId) return fail('Non connecté');
+    const json = subscription.toJSON();
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return fail('Abonnement invalide');
+
+    const { error } = await supabase.from('push_subscriptions').upsert(
+      { user_id: userId, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth },
+      { onConflict: 'endpoint' }
+    );
+    if (error) return fail(error.message);
+    return { data: undefined };
+  },
+
+  // Cet appareil est-il enregistré côté serveur ?
+  isRegistered: async (endpoint: string): Promise<boolean> => {
+    const { data } = await supabase.from('push_subscriptions').select('id').eq('endpoint', endpoint).maybeSingle();
+    return !!data;
+  },
+
+  remove: async (endpoint: string): Promise<ApiResponse<void>> => {
+    const { error } = await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
+    if (error) return fail(error.message);
+    return { data: undefined };
   },
 };

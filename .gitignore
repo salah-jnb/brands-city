@@ -43,3 +43,10 @@ Icon?
 
 # Données utilisateurs (emails + hash)
 supabase/*.private.sql
+
+# Secrets des notifications push
+supabase/*.private.txt
+
+# Icônes de la PWA (la règle "Icon?" ci-dessus les ignorerait)
+!frontendSHOP/public/icons/
+!frontendSHOP/public/icons/**
