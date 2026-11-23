@@ -39,21 +39,6 @@ const Login: React.FC = () => {
     }
   };
 
-  // Demo login for testing without backend
-  const handleDemoLogin = () => {
-    localStorage.setItem('token', 'demo-token');
-    localStorage.setItem('user', JSON.stringify({ id: '1', email: 'demo@brandscity.fr', role: 'user' }));
-    toast.success('Connexion démo réussie !');
-    window.location.href = from;
-  };
-
-  const handleDemoAdminLogin = () => {
-    localStorage.setItem('token', 'demo-admin-token');
-    localStorage.setItem('user', JSON.stringify({ id: '0', email: 'admin@brandscity.fr', role: 'admin' }));
-    toast.success('Connexion admin démo réussie !');
-    window.location.href = '/admin';
-  };
-
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
@@ -123,21 +108,6 @@ const Login: React.FC = () => {
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </form>
-
-            {/* Demo buttons */}
-            <div className="mt-6 pt-6 border-t border-border space-y-3">
-              <p className="text-xs text-center text-muted-foreground mb-3">
-                Mode démo (sans backend)
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <Button variant="outline" size="sm" onClick={handleDemoLogin}>
-                  Client démo
-                </Button>
-                <Button variant="outline" size="sm" onClick={handleDemoAdminLogin}>
-                  Admin démo
-                </Button>
-              </div>
-            </div>
 
             <p className="text-center text-muted-foreground text-sm mt-6">
               Pas encore de compte ?{' '}
