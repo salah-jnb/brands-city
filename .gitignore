@@ -40,3 +40,6 @@ Icon?
 
 # Optional JetBrains Rider
 .idea/
+
+# Données utilisateurs (emails + hash)
+supabase/*.private.sql

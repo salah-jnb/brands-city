@@ -53,7 +53,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const syncCartToServer = useCallback(async () => {
     if (!user || isAdmin || items.length === 0) return;
 
-    // Add all local items to server cart
+    // Le panier local fait foi : on vide le panier serveur puis on le recopie
+    // (évite de doubler les quantités déjà ajoutées au serveur)
+    await cartApi.clearCart();
     for (const item of items) {
       await cartApi.addItem(item.shoe.id, item.colorId, item.size, item.quantity);
     }
@@ -105,7 +107,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     if (user) {
-      await cartApi.removeItem(shoeId);
+      await cartApi.removeItem(shoeId, colorId, size);
     }
 
     toast.success('Article retiré du panier');

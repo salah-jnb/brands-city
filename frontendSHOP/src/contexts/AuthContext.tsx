@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { User } from '@/types';
 import { authApi } from '@/services/api';
+import { supabase } from '@/lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -20,71 +22,66 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize from localStorage
+  // La session est persistée et rafraîchie par supabase-js ; on s'y synchronise.
+  const applySession = useCallback(async (session: Session | null) => {
+    if (!session) {
+      setUser(null);
+      setToken(null);
+      setIsLoading(false);
+      return;
+    }
+    setToken(session.access_token);
+    const profile = await authApi.getProfile();
+    setUser(profile.data ?? null);
+    setIsLoading(false);
+  }, []);
+
   useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
+    supabase.auth.getSession().then(({ data }) => applySession(data.session));
 
-    if (storedToken && storedUser) {
-      setToken(storedToken);
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch {
-        localStorage.removeItem('user');
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Différé : ne pas appeler Supabase directement dans le callback (risque de blocage)
+      setTimeout(() => applySession(session), 0);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, [applySession]);
+
+  const handleAuthResponse = useCallback(
+    async (
+      call: () => ReturnType<typeof authApi.login>
+    ): Promise<{ success: boolean; error?: string }> => {
+      setIsLoading(true);
+      const response = await call();
+      setIsLoading(false);
+
+      if (response.error) return { success: false, error: response.error };
+
+      if (response.data) {
+        const { token: newToken, email: userEmail, role } = response.data;
+        const profile = await authApi.getProfile();
+        setToken(newToken);
+        setUser(profile.data ?? { id: '', email: userEmail, role: role as 'Client' | 'Admin' });
+        return { success: true };
       }
-    }
-    setIsLoading(false);
-  }, []);
+      return { success: false, error: 'Erreur inconnue' };
+    },
+    []
+  );
 
-  const login = useCallback(async (email: string, password: string) => {
-    setIsLoading(true);
-    const response = await authApi.login(email, password);
-    setIsLoading(false);
+  const login = useCallback(
+    (email: string, password: string) => handleAuthResponse(() => authApi.login(email, password)),
+    [handleAuthResponse]
+  );
 
-    if (response.error) {
-      return { success: false, error: response.error };
-    }
-
-    if (response.data) {
-      const { token: newToken, email: userEmail, role } = response.data;
-      const newUser: User = { id: 0, email: userEmail, role: role as 'Client' | 'Admin' };
-      setToken(newToken);
-      setUser(newUser);
-      localStorage.setItem('token', newToken);
-      localStorage.setItem('user', JSON.stringify(newUser));
-      return { success: true };
-    }
-
-    return { success: false, error: 'Erreur inconnue' };
-  }, []);
-
-  const register = useCallback(async (email: string, password: string) => {
-    setIsLoading(true);
-    const response = await authApi.register(email, password);
-    setIsLoading(false);
-
-    if (response.error) {
-      return { success: false, error: response.error };
-    }
-
-    if (response.data) {
-      const { token: newToken, email: userEmail, role } = response.data;
-      const newUser: User = { id: 0, email: userEmail, role: role as 'Client' | 'Admin' };
-      setToken(newToken);
-      setUser(newUser);
-      localStorage.setItem('token', newToken);
-      localStorage.setItem('user', JSON.stringify(newUser));
-      return { success: true };
-    }
-
-    return { success: false, error: 'Erreur inconnue' };
-  }, []);
+  const register = useCallback(
+    (email: string, password: string) => handleAuthResponse(() => authApi.register(email, password)),
+    [handleAuthResponse]
+  );
 
   const logout = useCallback(() => {
     setUser(null);
     setToken(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    authApi.logout();
   }, []);
 
   const value: AuthContextType = {

@@ -74,7 +74,7 @@ export interface Order {
 
 // User types
 export interface User {
-  id: number;
+  id: string;
   email: string;
   role: 'Client' | 'Admin';
 }
